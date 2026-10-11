@@ -1,0 +1,11 @@
+#!/bin/bash
+
+# Script to run Spring Boot backend
+# Author: Generated script for spring-security project
+
+echo "🚀 Starting Spring Boot Backend..."
+echo "=================================="
+
+# Run the Spring Boot application
+echo "📦 Running Spring Boot application..."
+./mvnw spring-boot:run

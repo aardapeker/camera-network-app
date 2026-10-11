@@ -1,0 +1,117 @@
+# Development Docker Compose
+# Usage: docker compose -f compose.dev.yml up
+# 
+# This setup provides:
+# - Hot reloading for frontend (Vite dev server)
+# - Hot reloading for backend (Spring Boot DevTools)
+# - PostgreSQL database
+# - All services accessible on localhost
+
+services:
+  db:
+    image: postgres:17-alpine
+    container_name: fielddesk-dev-db
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-fielddesk_dev}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-devpassword}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_dev_data:/var/lib/postgresql/data
+    networks:
+      - dev-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  backend:
+    container_name: fielddesk-dev-backend
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+      - "5005:5005"  # Debug port
+    networks:
+      - dev-network
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/${POSTGRES_DB:-fielddesk_dev}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-devpassword}
+      SPRING_MAIL_USERNAME: ${MAIL_USERNAME:-}
+      SPRING_MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+      MAIL_HOST: ${MAIL_HOST:-smtp.gmail.com}
+      MAIL_PORT: ${MAIL_PORT:-587}
+      MAIL_STARTTLS: ${MAIL_STARTTLS:-true}
+      MAIL_SSL: ${MAIL_SSL:-false}
+      MAIL_DEBUG: ${MAIL_DEBUG:-false}
+      MAIL_FROM: ${MAIL_FROM:-}
+      MAIL_FROM_NAME: ${MAIL_FROM_NAME:-}
+      # Fixed dev-only secret so restarting the backend doesn't invalidate every logged-in session.
+      # Never reuse this value outside local dev.
+      JWT_SECRET: ${JWT_SECRET:-lgFy2SALDbcG0HNffXAdOfAUuxSfX3+73YHnbhzT/RM=}
+      # Fixed dev-only key shared with the Raspberry Pi's scan.py config (API_KEY=).
+      # Never reuse this value outside local dev.
+      SCAN_API_KEY: ${SCAN_API_KEY:-dev-only-pi-scanner-key-change-me}
+      SCAN_DEFAULT_RETENTION_DAYS: ${SCAN_DEFAULT_RETENTION_DAYS:-30}
+      SCAN_DEFAULT_MIN_WRITE_INTERVAL_SECONDS: ${SCAN_DEFAULT_MIN_WRITE_INTERVAL_SECONDS:-60}
+      FILE_BASE_URL: http://localhost:8080
+      FRONTEND_BASE_URL: http://localhost:5173
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_S3_BUCKET: ${AWS_S3_BUCKET:-fielddesk-backups}
+      AWS_S3_REGION: ${AWS_S3_REGION:-eu-north-1}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      # Dev convenience only: root / admin123 on a fresh dev database.
+      ADMIN_INITIAL_PASSWORD: ${ADMIN_INITIAL_PASSWORD:-admin123}
+      # Enable Spring DevTools for hot reload
+      SPRING_DEVTOOLS_RESTART_ENABLED: "true"
+      SPRING_DEVTOOLS_LIVERELOAD_ENABLED: "true"
+    volumes:
+      # Mount source code for hot reload.
+      # ":z" relabels the host path for SELinux so rootless Podman on Fedora can
+      # read it; Docker accepts the flag and ignores it when SELinux is off.
+      - ./backend/src:/app/src:ro,z
+      - ./backend/pom.xml:/app/pom.xml:ro,z
+      # Persist uploads
+      - uploads_dev_data:/app/uploads
+      # Maven cache for faster rebuilds
+      - maven_cache:/root/.m2
+    restart: unless-stopped
+
+  frontend:
+    container_name: fielddesk-dev-frontend
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    depends_on:
+      - backend
+    ports:
+      - "5173:5173"
+    networks:
+      - dev-network
+    environment:
+      # Vite needs to know the host for HMR
+      VITE_HMR_HOST: localhost
+    volumes:
+      # Mount source code for hot reload
+      - ./frontend/src:/app/src:z
+      - ./frontend/public:/app/public:z
+      # Don't mount node_modules from host
+      - /app/node_modules
+    restart: unless-stopped
+
+volumes:
+  postgres_dev_data:
+  uploads_dev_data:
+  maven_cache:
+
+networks:
+  dev-network:
+    driver: bridge

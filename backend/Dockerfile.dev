@@ -1,0 +1,33 @@
+# Development Dockerfile for Backend
+# Uses Spring Boot DevTools for hot reload
+
+FROM eclipse-temurin:25-jdk
+
+WORKDIR /app
+
+# Install Maven + PostgreSQL 17 client tools (pg_dump, pg_restore) in one layer
+RUN apt-get update \
+    && apt-get install -y maven gnupg curl \
+    && curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor -o /usr/share/keyrings/postgresql.gpg \
+    && echo "deb [signed-by=/usr/share/keyrings/postgresql.gpg] https://apt.postgresql.org/pub/repos/apt noble-pgdg main" > /etc/apt/sources.list.d/pgdg.list \
+    && apt-get update \
+    && apt-get install -y postgresql-client-17 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy pom.xml first to cache dependencies
+COPY pom.xml .
+
+# Download dependencies (cached layer)
+RUN mvn dependency:go-offline -B
+
+# Copy source files (will be overridden by volume mount for hot reload)
+COPY src ./src
+
+# Expose application port and debug port
+EXPOSE 8080
+EXPOSE 5005
+
+# Start with Spring Boot DevTools and remote debugging enabled
+# DevTools watches for file changes and auto-restarts
+CMD ["mvn", "spring-boot:run", \
+     "-Dspring-boot.run.jvmArguments=-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5005"]

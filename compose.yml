@@ -1,0 +1,96 @@
+services:
+  caddy:
+    image: caddy:alpine
+    container_name: caddy
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:?APP_DOMAIN must be set in .env, e.g. app.example.com}
+      PORTAL_DOMAIN: ${PORTAL_DOMAIN:?PORTAL_DOMAIN must be set in .env, e.g. servisform.example.com}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+    networks:
+      - spring-network
+    restart: unless-stopped
+
+  db:
+    image: postgres:17-alpine
+    container_name: spring-security-db
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-postgres}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - spring-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    container_name: backend
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - spring-network
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/${POSTGRES_DB:-postgres}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
+      SPRING_MAIL_USERNAME: ${MAIL_USERNAME}
+      SPRING_MAIL_PASSWORD: ${MAIL_PASSWORD}
+      MAIL_HOST: ${MAIL_HOST:-smtp.gmail.com}
+      MAIL_PORT: ${MAIL_PORT:-587}
+      MAIL_STARTTLS: ${MAIL_STARTTLS:-true}
+      MAIL_SSL: ${MAIL_SSL:-false}
+      MAIL_DEBUG: ${MAIL_DEBUG:-false}
+      MAIL_FROM: ${MAIL_FROM:-}
+      MAIL_FROM_NAME: ${MAIL_FROM_NAME:-}
+      # Persistent JWT signing secret. Without it the backend generates a new
+      # random key on every start, which invalidates every issued token and forces
+      # all users to log in again after a deploy/restart. Fail fast if unset.
+      JWT_SECRET: "${JWT_SECRET:?JWT_SECRET must be set in .env - generate with: openssl rand -base64 32}"
+      FILE_BASE_URL: ${FILE_BASE_URL:-http://localhost:8080}
+      FRONTEND_BASE_URL: ${FRONTEND_BASE_URL:-http://localhost:5173}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_S3_BUCKET: ${AWS_S3_BUCKET:-fielddesk-backups}
+      AWS_S3_REGION: ${AWS_S3_REGION:-eu-north-1}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      SCAN_API_KEY: ${SCAN_API_KEY:-}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost}
+      ADMIN_INITIAL_PASSWORD: ${ADMIN_INITIAL_PASSWORD:-}
+      SCAN_DEFAULT_RETENTION_DAYS: ${SCAN_DEFAULT_RETENTION_DAYS:-30}
+      SCAN_DEFAULT_MIN_WRITE_INTERVAL_SECONDS: ${SCAN_DEFAULT_MIN_WRITE_INTERVAL_SECONDS:-60}
+    volumes:
+      - uploads_data:/app/uploads
+    restart: unless-stopped
+
+  frontend:
+    container_name: frontend
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    depends_on:
+      - backend
+    networks:
+      - spring-network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  uploads_data:
+  caddy_data:
+
+networks:
+  spring-network:
+    driver: bridge

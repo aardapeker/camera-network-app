@@ -1,0 +1,14 @@
+node_modules
+.git
+.gitignore
+todo.md
+README.md
+Dockerfile
+*.log
+.env
+dist
+build
+.vscode
+*.tsbuildinfo
+coverage
+.react-router
